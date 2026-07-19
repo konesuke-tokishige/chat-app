@@ -107,6 +107,22 @@
   }
   .typing .bubble { color: rgba(240,235,221,.7); letter-spacing: .2em; }
 
+  /* 日付区切り */
+  .date-sep {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 18px 0 14px;
+    color: #8A8171;
+    font-size: 11px;
+    letter-spacing: .1em;
+  }
+  .date-sep::before, .date-sep::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid var(--line);
+  }
+
   /* 記憶提案カード */
   .mem-suggest {
     max-width: 85%;
@@ -431,6 +447,26 @@
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
+  /* ================= 日時ユーティリティ ================= */
+  var WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+
+  function fmtDate(d) {
+    return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日(' + WEEKDAYS[d.getDay()] + ')';
+  }
+
+  function fmtDateTime(d) {
+    return fmtDate(d) + ' ' + d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+
+  function fmtElapsed(ms) {
+    var min = Math.round(ms / 60000);
+    if (min < 1) return '1分未満';
+    if (min < 60) return '約' + min + '分';
+    var h = Math.round(min / 60);
+    if (h < 48) return '約' + h + '時間';
+    return '約' + Math.round(h / 24) + '日';
+  }
+
   function newThread(name, messages) {
     return { id: uid(), name: name || '新しいスレッド', messages: messages || [] };
   }
@@ -544,11 +580,26 @@
     return card;
   }
 
+  function makeDateSep(label) {
+    var sep = document.createElement('div');
+    sep.className = 'date-sep';
+    sep.textContent = label;
+    return sep;
+  }
+
   function renderChat() {
     chatArea.innerHTML = '';
     var msgs = activeThread().messages;
+    var lastDate = null;
     for (var i = 0; i < msgs.length; i++) {
       var m = msgs[i];
+      if (m.ts) {
+        var dateStr = fmtDate(new Date(m.ts));
+        if (dateStr !== lastDate) {
+          chatArea.appendChild(makeDateSep(dateStr));
+          lastDate = dateStr;
+        }
+      }
       chatArea.appendChild(makeBubbleRow(m.role, m.content));
       if (m.role === 'assistant' && m.suggestion && !m.suggestionHandled) {
         chatArea.appendChild(makeSuggestCard(m));
@@ -568,7 +619,8 @@
   }
 
   /* ================= system 生成 ================= */
-  function buildSystem() {
+  /* prevTs: 今回送信の直前にあったメッセージの日時(なければ null) */
+  function buildSystem(prevTs) {
     var p = activeProfile();
     var parts = [];
     if (p.persona.trim()) parts.push(p.persona.trim());
@@ -577,6 +629,12 @@
       parts.push('【現在のメモリ(このユーザーについて覚えていること)】\n' + lines.join('\n'));
     }
     parts.push('会話の中で長期的に覚えるべき事実があれば、返答の最後に [記憶提案: 内容] を1行で付けてよい。');
+    var timeLines = ['【現在日時】' + fmtDateTime(new Date())];
+    if (prevTs) {
+      timeLines.push('【直前のメッセージからの経過時間】' + fmtElapsed(Date.now() - prevTs));
+    }
+    timeLines.push('時間帯や間隔に自然に言及してよいが、毎回はしない。');
+    parts.push(timeLines.join('\n'));
     return parts.join('\n\n');
   }
 
@@ -679,13 +737,17 @@
     if (!text || !currentKey()) return;
 
     var th = activeThread();
+    var prevTs = null;
+    for (var i = th.messages.length - 1; i >= 0; i--) {
+      if (th.messages[i].ts) { prevTs = th.messages[i].ts; break; }
+    }
     th.messages.push({ role: 'user', content: text, ts: Date.now() });
     saveData();
     msgInput.value = '';
     autoGrow();
     renderChat();
 
-    var system = buildSystem();
+    var system = buildSystem(prevTs);
     var apiMsgs = buildApiMessages();
 
     sending = true;
