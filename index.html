@@ -285,6 +285,7 @@
       <div class="app-name">AI チャット</div>
       <div class="profile-name" id="headerProfileName"></div>
     </div>
+    <button class="hbtn" id="btnThreads">部屋</button>
     <button class="hbtn" id="btnProfiles">人格</button>
     <button class="hbtn" id="btnMemory">記憶</button>
     <button class="hbtn" id="btnSettings">設定</button>
@@ -299,6 +300,22 @@
     <div class="row">
       <textarea id="msgInput" rows="1" placeholder="メッセージを入力"></textarea>
       <button id="sendBtn">送信</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== スレッドパネル ===== -->
+<div class="panel" id="panelThreads">
+  <div class="panel-head">
+    <div class="p-title">スレッド(会話の部屋)</div>
+    <button class="hbtn" data-close>閉じる</button>
+  </div>
+  <div class="panel-body">
+    <div class="sec">
+      <h3 id="threadTitle">スレッド一覧</h3>
+      <div id="threadList"></div>
+      <button class="btn primary block" id="btnAddThread">＋ 新しいスレッドを作る</button>
+      <p class="note">会話履歴はスレッドごとに分かれます。記憶(メモリ)はプロファイル共通です。</p>
     </div>
   </div>
 </div>
@@ -407,15 +424,39 @@
   };
 
   /* ================= 状態 ================= */
-  var data;      // { profiles: [...], activeProfileId }
+  var data;      // { profiles: [{..., threads: [{id,name,messages}], activeThreadId}], activeProfileId }
   var keys;      // { claude, openai, gemini }
   var api;       // { provider, model, customModel }
   var sending = false;
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
+  function newThread(name, messages) {
+    return { id: uid(), name: name || '新しいスレッド', messages: messages || [] };
+  }
+
   function newProfile(name) {
-    return { id: uid(), name: name || '新しい人格', persona: '', memories: [], messages: [] };
+    var t = newThread('最初のスレッド');
+    return { id: uid(), name: name || '新しい人格', persona: '', memories: [],
+             threads: [t], activeThreadId: t.id };
+  }
+
+  /* 旧形式(messages直持ち)のプロファイルをスレッド形式へ移行 */
+  function migrateProfile(p) {
+    if (!Array.isArray(p.threads) || p.threads.length === 0) {
+      var t = newThread('最初のスレッド', Array.isArray(p.messages) ? p.messages : []);
+      p.threads = [t];
+      p.activeThreadId = t.id;
+    }
+    delete p.messages;
+    p.threads.forEach(function (t) {
+      if (!Array.isArray(t.messages)) t.messages = [];
+      if (!t.id) t.id = uid();
+      if (!t.name) t.name = '新しいスレッド';
+    });
+    if (!p.threads.some(function (t) { return t.id === p.activeThreadId; })) {
+      p.activeThreadId = p.threads[0].id;
+    }
   }
 
   function load() {
@@ -427,6 +468,7 @@
       var p = newProfile('標準');
       data = { profiles: [p], activeProfileId: p.id };
     }
+    data.profiles.forEach(migrateProfile);
     if (!data.profiles.some(function (p) { return p.id === data.activeProfileId; })) {
       data.activeProfileId = data.profiles[0].id;
     }
@@ -446,6 +488,14 @@
     return data.profiles[0];
   }
 
+  function activeThread() {
+    var p = activeProfile();
+    for (var i = 0; i < p.threads.length; i++) {
+      if (p.threads[i].id === p.activeThreadId) return p.threads[i];
+    }
+    return p.threads[0];
+  }
+
   function currentKey() { return (keys[api.provider] || '').trim(); }
   function currentModel() {
     var c = (api.customModel || '').trim();
@@ -458,7 +508,7 @@
 
   /* ================= 描画 ================= */
   function renderHeader() {
-    $('headerProfileName').textContent = activeProfile().name;
+    $('headerProfileName').textContent = activeProfile().name + ' ・ ' + activeThread().name;
   }
 
   function makeBubbleRow(role, text) {
@@ -496,7 +546,7 @@
 
   function renderChat() {
     chatArea.innerHTML = '';
-    var msgs = activeProfile().messages;
+    var msgs = activeThread().messages;
     for (var i = 0; i < msgs.length; i++) {
       var m = msgs[i];
       chatArea.appendChild(makeBubbleRow(m.role, m.content));
@@ -530,9 +580,9 @@
     return parts.join('\n\n');
   }
 
-  /* APIに送る messages(直近 MAX_TURNS 往復・エラー除外・交互整形) */
+  /* APIに送る messages(現在のスレッドの直近 MAX_TURNS 往復・エラー除外・交互整形) */
   function buildApiMessages() {
-    var all = activeProfile().messages.filter(function (m) {
+    var all = activeThread().messages.filter(function (m) {
       return m.role === 'user' || m.role === 'assistant';
     });
     var trimmed = all.slice(-MAX_TURNS * 2);
@@ -628,8 +678,8 @@
     var text = msgInput.value.trim();
     if (!text || !currentKey()) return;
 
-    var p = activeProfile();
-    p.messages.push({ role: 'user', content: text, ts: Date.now() });
+    var th = activeThread();
+    th.messages.push({ role: 'user', content: text, ts: Date.now() });
     saveData();
     msgInput.value = '';
     autoGrow();
@@ -654,9 +704,9 @@
         msg.suggestion = parsed.suggestion;
         msg.suggestionHandled = false;
       }
-      p.messages.push(msg);
+      th.messages.push(msg);
     }).catch(function (err) {
-      p.messages.push({ role: 'error', content: '通信に失敗しました。\n' + err.message, ts: Date.now() });
+      th.messages.push({ role: 'error', content: '通信に失敗しました。\n' + err.message, ts: Date.now() });
     }).then(function () {
       sending = false;
       saveData();
@@ -679,6 +729,70 @@
       }
     }
     return { text: kept.join('\n').trim() || reply.trim(), suggestion: suggestion };
+  }
+
+  /* ================= スレッド ================= */
+  function renderThreads() {
+    var p = activeProfile();
+    $('threadTitle').textContent = '「' + p.name + '」のスレッド一覧';
+    var list = $('threadList');
+    list.innerHTML = '';
+    p.threads.forEach(function (t) {
+      var item = document.createElement('div');
+      item.className = 'prof-item' + (t.id === p.activeThreadId ? ' active' : '');
+      var name = document.createElement('div');
+      name.className = 'p-name';
+      name.textContent = t.name;
+      item.appendChild(name);
+      if (t.id === p.activeThreadId) {
+        var mark = document.createElement('div');
+        mark.className = 'p-mark';
+        mark.textContent = '使用中';
+        item.appendChild(mark);
+      } else {
+        var sw = document.createElement('button');
+        sw.className = 'mini-btn';
+        sw.textContent = '切替';
+        sw.addEventListener('click', function (e) {
+          e.stopPropagation();
+          p.activeThreadId = t.id;
+          saveData();
+          renderAll();
+        });
+        item.appendChild(sw);
+      }
+      var rn = document.createElement('button');
+      rn.className = 'mini-btn';
+      rn.textContent = '改名';
+      rn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var v = prompt('スレッド名を変更', t.name);
+        if (v === null) return;
+        v = v.trim();
+        if (!v) return;
+        t.name = v;
+        saveData();
+        renderAll();
+      });
+      item.appendChild(rn);
+      var del = document.createElement('button');
+      del.className = 'mini-btn del';
+      del.textContent = '削除';
+      del.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (p.threads.length <= 1) {
+          alert('最後のスレッドは削除できません。');
+          return;
+        }
+        if (!confirm('スレッド「' + t.name + '」を削除しますか?\nこのスレッドの会話履歴もすべて消えます。')) return;
+        p.threads = p.threads.filter(function (x) { return x.id !== t.id; });
+        if (p.activeThreadId === t.id) p.activeThreadId = p.threads[0].id;
+        saveData();
+        renderAll();
+      });
+      item.appendChild(del);
+      list.appendChild(item);
+    });
   }
 
   /* ================= プロファイル ================= */
@@ -804,7 +918,7 @@
   function doExport() {
     var payload = {
       app: 'aichat',
-      version: 1,
+      version: 2,  // v2: プロファイル配下にスレッド構造を持つ
       exportedAt: new Date().toISOString(),
       data: data,
       api: { provider: api.provider, model: api.model, customModel: api.customModel } // キーは含めない
@@ -832,6 +946,7 @@
         }
         if (!confirm('バックアップを読み込みます。現在の全プロファイルは上書きされます。よろしいですか?')) return;
         data = d;
+        data.profiles.forEach(migrateProfile);  // 旧形式(v1: messages直持ち)にも対応
         if (!data.profiles.some(function (p) { return p.id === data.activeProfileId; })) {
           data.activeProfileId = data.profiles[0].id;
         }
@@ -855,6 +970,7 @@
   function renderAll() {
     renderHeader();
     renderChat();
+    renderThreads();
     renderProfiles();
     renderMemory();
     renderSettings();
@@ -876,6 +992,7 @@
   }
 
   /* ================= イベント ================= */
+  $('btnThreads').addEventListener('click', function () { renderThreads(); openPanel('panelThreads'); });
   $('btnProfiles').addEventListener('click', function () { renderProfiles(); openPanel('panelProfiles'); });
   $('btnMemory').addEventListener('click', function () { renderMemory(); openPanel('panelMemory'); });
   $('btnSettings').addEventListener('click', function () { renderSettings(); openPanel('panelSettings'); });
@@ -885,6 +1002,17 @@
 
   sendBtn.addEventListener('click', send);
   msgInput.addEventListener('input', autoGrow);
+
+  $('btnAddThread').addEventListener('click', function () {
+    var name = prompt('新しいスレッドの名前');
+    if (name === null) return;
+    var p = activeProfile();
+    var t = newThread(name.trim() || '新しいスレッド');
+    p.threads.push(t);
+    p.activeThreadId = t.id;
+    saveData();
+    renderAll();
+  });
 
   $('btnAddProfile').addEventListener('click', function () {
     var name = prompt('新しいプロファイルの名前');
@@ -909,8 +1037,8 @@
 
   $('btnClearHistory').addEventListener('click', function () {
     var p = activeProfile();
-    if (!confirm('「' + p.name + '」の会話履歴をすべて削除しますか?\nこの操作は取り消せません。')) return;
-    p.messages = [];
+    if (!confirm('「' + p.name + '」の会話履歴(全スレッド分)をすべて削除しますか?\nスレッド自体は残ります。この操作は取り消せません。')) return;
+    p.threads.forEach(function (t) { t.messages = []; });
     saveData();
     renderChat();
     alert('削除しました。');
