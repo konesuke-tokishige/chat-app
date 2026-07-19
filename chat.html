@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>AIチャット</title>
+<style>
+  :root {
+    --kinari: #F5EFE1;
+    --kinari-deep: #EDE5D2;
+    --navy: #1B2333;
+    --navy-light: #2A3550;
+    --aka: #8E3B3B;
+    --aka-deep: #6E2B2B;
+    --sumi: #3A3630;
+    --line: #D8CDB4;
+    --white: #FDFBF5;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+    background: var(--kinari);
+    color: var(--sumi);
+    overscroll-behavior: none;
+  }
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  /* ===== ヘッダー ===== */
+  header {
+    background: var(--navy);
+    color: var(--white);
+    padding: calc(env(safe-area-inset-top) + 10px) 12px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    border-bottom: 3px solid var(--aka);
+  }
+  header .title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  header .title .app-name { font-size: 11px; opacity: .6; letter-spacing: .2em; }
+  header .title .profile-name {
+    font-size: 17px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hbtn {
+    background: var(--navy-light);
+    color: var(--white);
+    border: 1px solid rgba(255,255,255,.2);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    flex-shrink: 0;
+  }
+  .hbtn:active { background: var(--aka); }
+
+  /* ===== チャット画面 ===== */
+  #chatArea {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 14px 12px 20px;
+  }
+  .msg-row { display: flex; margin-bottom: 12px; }
+  .msg-row.user { justify-content: flex-end; }
+  .msg-row.assistant, .msg-row.error { justify-content: flex-start; }
+  .bubble {
+    max-width: 78%;
+    padding: 10px 13px;
+    border-radius: 14px;
+    font-size: 15px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg-row.user .bubble {
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-bottom-right-radius: 3px;
+    box-shadow: 0 1px 2px rgba(58,54,48,.08);
+  }
+  .msg-row.assistant .bubble {
+    background: var(--navy);
+    color: #F0EBDD;
+    border-bottom-left-radius: 3px;
+    box-shadow: 0 1px 3px rgba(27,35,51,.25);
+  }
+  .msg-row.error .bubble {
+    background: #F7E8E6;
+    border: 1px solid var(--aka);
+    color: var(--aka-deep);
+    font-size: 13px;
+  }
+  .typing .bubble { color: rgba(240,235,221,.7); letter-spacing: .2em; }
+
+  /* 記憶提案カード */
+  .mem-suggest {
+    max-width: 85%;
+    margin: -4px 0 14px 6px;
+    background: var(--kinari-deep);
+    border: 1px dashed var(--aka);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .mem-suggest .ms-label { color: var(--aka-deep); font-weight: 600; margin-bottom: 4px; font-size: 12px; }
+  .mem-suggest .ms-text { margin-bottom: 8px; line-height: 1.5; }
+  .mem-suggest .ms-btns { display: flex; gap: 8px; }
+  .mem-suggest button {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--white);
+    color: var(--sumi);
+  }
+  .mem-suggest button.ok { background: var(--aka); border-color: var(--aka-deep); color: var(--white); }
+
+  /* ===== 入力欄 ===== */
+  #inputBar {
+    flex-shrink: 0;
+    background: var(--kinari-deep);
+    border-top: 1px solid var(--line);
+    padding: 8px 10px calc(env(safe-area-inset-bottom) + 8px);
+  }
+  #noKeyNotice {
+    display: none;
+    font-size: 12px;
+    color: var(--aka-deep);
+    text-align: center;
+    padding-bottom: 6px;
+  }
+  #inputBar .row { display: flex; gap: 8px; align-items: flex-end; }
+  #msgInput {
+    flex: 1;
+    font-family: inherit;
+    font-size: 16px;
+    line-height: 1.5;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--white);
+    resize: none;
+    max-height: 110px;
+    outline: none;
+  }
+  #sendBtn {
+    flex-shrink: 0;
+    font-family: inherit;
+    font-size: 15px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    border: none;
+    background: var(--aka);
+    color: var(--white);
+  }
+  #sendBtn:disabled { background: #B7AC97; }
+
+  /* ===== パネル(設定など) ===== */
+  .panel {
+    position: fixed;
+    inset: 0;
+    background: var(--kinari);
+    z-index: 50;
+    display: none;
+    flex-direction: column;
+  }
+  .panel.open { display: flex; }
+  .panel-head {
+    background: var(--navy);
+    color: var(--white);
+    padding: calc(env(safe-area-inset-top) + 10px) 12px 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 3px solid var(--aka);
+    flex-shrink: 0;
+  }
+  .panel-head .p-title { flex: 1; font-size: 16px; font-weight: 600; }
+  .panel-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 16px 14px calc(env(safe-area-inset-bottom) + 24px);
+  }
+  .sec { margin-bottom: 22px; }
+  .sec h3 {
+    font-size: 13px;
+    color: var(--aka-deep);
+    letter-spacing: .15em;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 5px;
+    margin-bottom: 10px;
+  }
+  label.f-label { display: block; font-size: 12px; color: #6E6656; margin: 10px 0 4px; }
+  input[type="text"], input[type="password"], select, textarea {
+    width: 100%;
+    font-family: inherit;
+    font-size: 16px;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--white);
+    color: var(--sumi);
+    outline: none;
+  }
+  textarea { line-height: 1.6; resize: vertical; }
+  .btn {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 16px;
+    border-radius: 9px;
+    border: 1px solid var(--line);
+    background: var(--white);
+    color: var(--sumi);
+  }
+  .btn.primary { background: var(--navy); color: var(--white); border-color: var(--navy); }
+  .btn.danger  { background: var(--white); color: var(--aka-deep); border-color: var(--aka); }
+  .btn.block { display: block; width: 100%; margin-top: 8px; }
+  .note { font-size: 11px; color: #8A8171; margin-top: 5px; line-height: 1.5; }
+
+  /* プロファイル一覧 */
+  .prof-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+  .prof-item.active { border: 2px solid var(--aka); }
+  .prof-item .p-name { flex: 1; font-size: 15px; }
+  .prof-item .p-mark { font-size: 11px; color: var(--aka-deep); }
+  .prof-item button { flex-shrink: 0; }
+
+  /* メモリ一覧 */
+  .mem-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+  .mem-item .m-text { flex: 1; font-size: 14px; line-height: 1.5; word-break: break-word; }
+  .mini-btn {
+    font-family: inherit;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--kinari);
+    color: var(--sumi);
+    flex-shrink: 0;
+  }
+  .mini-btn.del { color: var(--aka-deep); border-color: var(--aka); }
+  .empty-note { text-align: center; color: #8A8171; font-size: 13px; padding: 24px 0; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ヘッダー -->
+  <header>
+    <div class="title">
+      <div class="app-name">AI チャット</div>
+      <div class="profile-name" id="headerProfileName"></div>
+    </div>
+    <button class="hbtn" id="btnProfiles">人格</button>
+    <button class="hbtn" id="btnMemory">記憶</button>
+    <button class="hbtn" id="btnSettings">設定</button>
+  </header>
+
+  <!-- チャット表示 -->
+  <div id="chatArea"></div>
+
+  <!-- 入力欄 -->
+  <div id="inputBar">
+    <div id="noKeyNotice">設定からAPIキーを入力してください</div>
+    <div class="row">
+      <textarea id="msgInput" rows="1" placeholder="メッセージを入力"></textarea>
+      <button id="sendBtn">送信</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== プロファイルパネル ===== -->
+<div class="panel" id="panelProfiles">
+  <div class="panel-head">
+    <div class="p-title">人格(プロファイル)</div>
+    <button class="hbtn" data-close>閉じる</button>
+  </div>
+  <div class="panel-body">
+    <div class="sec">
+      <h3>プロファイル一覧</h3>
+      <div id="profList"></div>
+      <button class="btn primary block" id="btnAddProfile">＋ 新しいプロファイルを作る</button>
+    </div>
+    <div class="sec">
+      <h3>現在のプロファイルの編集</h3>
+      <label class="f-label">名前</label>
+      <input type="text" id="profName">
+      <label class="f-label">人格設定文(systemプロンプト)</label>
+      <textarea id="profPersona" rows="7" placeholder="例:あなたは京都在住の落ち着いた口調の相談相手です。"></textarea>
+      <button class="btn primary block" id="btnSaveProfile">保存する</button>
+    </div>
+    <div class="sec">
+      <h3>会話履歴</h3>
+      <button class="btn danger block" id="btnClearHistory">この人格の会話履歴を全削除</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== メモリパネル ===== -->
+<div class="panel" id="panelMemory">
+  <div class="panel-head">
+    <div class="p-title">記憶(メモリ)</div>
+    <button class="hbtn" data-close>閉じる</button>
+  </div>
+  <div class="panel-body">
+    <div class="sec">
+      <h3 id="memTitle">記憶一覧</h3>
+      <div id="memList"></div>
+      <label class="f-label">新しい記憶を追加</label>
+      <input type="text" id="memInput" placeholder="例:好きな食べ物はうどん">
+      <button class="btn primary block" id="btnAddMem">追加する</button>
+      <p class="note">ここに登録した内容は、毎回の送信時に人格設定文と一緒にAIへ伝えられます。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 設定パネル ===== -->
+<div class="panel" id="panelSettings">
+  <div class="panel-head">
+    <div class="p-title">設定</div>
+    <button class="hbtn" data-close>閉じる</button>
+  </div>
+  <div class="panel-body">
+    <div class="sec">
+      <h3>API設定</h3>
+      <label class="f-label">使用する会社</label>
+      <select id="setProvider">
+        <option value="claude">Claude (Anthropic)</option>
+        <option value="openai">OpenAI</option>
+        <option value="gemini">Gemini (Google)</option>
+      </select>
+      <label class="f-label">モデル選択</label>
+      <select id="setModel"></select>
+      <label class="f-label">モデル名を自由入力で上書き(空欄なら上の選択を使用)</label>
+      <input type="text" id="setCustomModel" autocapitalize="off" autocorrect="off" placeholder="例: claude-sonnet-5">
+    </div>
+    <div class="sec">
+      <h3>APIキー</h3>
+      <label class="f-label">Claude APIキー</label>
+      <input type="password" id="keyClaude" autocapitalize="off" placeholder="sk-ant-...">
+      <label class="f-label">OpenAI APIキー</label>
+      <input type="password" id="keyOpenai" autocapitalize="off" placeholder="sk-...">
+      <label class="f-label">Gemini APIキー</label>
+      <input type="password" id="keyGemini" autocapitalize="off" placeholder="AIza...">
+      <p class="note">APIキーはこの端末(localStorage)にのみ保存され、バックアップファイルには含まれません。</p>
+      <button class="btn primary block" id="btnSaveSettings">設定を保存する</button>
+    </div>
+    <div class="sec">
+      <h3>バックアップ</h3>
+      <button class="btn block" id="btnExport">全データをJSONで書き出す</button>
+      <button class="btn block" id="btnImport">JSONを読み込んで復元する</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+      <p class="note">全プロファイル(名前・人格設定文・記憶・会話履歴)が対象です。APIキーは含まれません。読み込むと現在のデータは上書きされます。</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ================= 定数 ================= */
+  var LS_DATA = 'aichat_data';
+  var LS_KEYS = 'aichat_keys';
+  var LS_API  = 'aichat_api';
+  var MAX_TURNS = 30;               // APIに送る直近の往復数
+  var SUGGEST_RE = /^\s*\[記憶提案[::]\s*([\s\S]+?)\]\s*$/;
+
+  var MODEL_PRESETS = {
+    claude: ['claude-sonnet-5', 'claude-opus-4-8', 'claude-haiku-4-5-20251001'],
+    openai: ['gpt-5-mini', 'gpt-5', 'gpt-4o-mini'],
+    gemini: ['gemini-2.5-flash', 'gemini-2.5-pro']
+  };
+
+  /* ================= 状態 ================= */
+  var data;      // { profiles: [...], activeProfileId }
+  var keys;      // { claude, openai, gemini }
+  var api;       // { provider, model, customModel }
+  var sending = false;
+
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+  function newProfile(name) {
+    return { id: uid(), name: name || '新しい人格', persona: '', memories: [], messages: [] };
+  }
+
+  function load() {
+    try { data = JSON.parse(localStorage.getItem(LS_DATA)); } catch (e) { data = null; }
+    try { keys = JSON.parse(localStorage.getItem(LS_KEYS)); } catch (e) { keys = null; }
+    try { api  = JSON.parse(localStorage.getItem(LS_API));  } catch (e) { api = null; }
+
+    if (!data || !Array.isArray(data.profiles) || data.profiles.length === 0) {
+      var p = newProfile('標準');
+      data = { profiles: [p], activeProfileId: p.id };
+    }
+    if (!data.profiles.some(function (p) { return p.id === data.activeProfileId; })) {
+      data.activeProfileId = data.profiles[0].id;
+    }
+    if (!keys) keys = { claude: '', openai: '', gemini: '' };
+    if (!api) api = { provider: 'claude', model: MODEL_PRESETS.claude[0], customModel: '' };
+    if (!MODEL_PRESETS[api.provider]) api.provider = 'claude';
+  }
+
+  function saveData() { localStorage.setItem(LS_DATA, JSON.stringify(data)); }
+  function saveKeys() { localStorage.setItem(LS_KEYS, JSON.stringify(keys)); }
+  function saveApi()  { localStorage.setItem(LS_API,  JSON.stringify(api)); }
+
+  function activeProfile() {
+    for (var i = 0; i < data.profiles.length; i++) {
+      if (data.profiles[i].id === data.activeProfileId) return data.profiles[i];
+    }
+    return data.profiles[0];
+  }
+
+  function currentKey() { return (keys[api.provider] || '').trim(); }
+  function currentModel() {
+    var c = (api.customModel || '').trim();
+    return c || api.model || MODEL_PRESETS[api.provider][0];
+  }
+
+  /* ================= DOM ================= */
+  function $(id) { return document.getElementById(id); }
+  var chatArea = $('chatArea'), msgInput = $('msgInput'), sendBtn = $('sendBtn');
+
+  /* ================= 描画 ================= */
+  function renderHeader() {
+    $('headerProfileName').textContent = activeProfile().name;
+  }
+
+  function makeBubbleRow(role, text) {
+    var row = document.createElement('div');
+    row.className = 'msg-row ' + role;
+    var b = document.createElement('div');
+    b.className = 'bubble';
+    b.textContent = text;
+    row.appendChild(b);
+    return row;
+  }
+
+  function makeSuggestCard(msg) {
+    var card = document.createElement('div');
+    card.className = 'mem-suggest';
+    card.innerHTML =
+      '<div class="ms-label">この内容を記憶しますか?</div>' +
+      '<div class="ms-text"></div>' +
+      '<div class="ms-btns"><button class="ok">記憶する</button><button class="no">しない</button></div>';
+    card.querySelector('.ms-text').textContent = msg.suggestion;
+    card.querySelector('.ok').addEventListener('click', function () {
+      activeProfile().memories.push({ id: uid(), text: msg.suggestion });
+      msg.suggestionHandled = true;
+      saveData();
+      renderChat();
+      renderMemory();
+    });
+    card.querySelector('.no').addEventListener('click', function () {
+      msg.suggestionHandled = true;
+      saveData();
+      renderChat();
+    });
+    return card;
+  }
+
+  function renderChat() {
+    chatArea.innerHTML = '';
+    var msgs = activeProfile().messages;
+    for (var i = 0; i < msgs.length; i++) {
+      var m = msgs[i];
+      chatArea.appendChild(makeBubbleRow(m.role, m.content));
+      if (m.role === 'assistant' && m.suggestion && !m.suggestionHandled) {
+        chatArea.appendChild(makeSuggestCard(m));
+      }
+    }
+    scrollBottom();
+  }
+
+  function scrollBottom() {
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  function updateSendState() {
+    var hasKey = !!currentKey();
+    $('noKeyNotice').style.display = hasKey ? 'none' : 'block';
+    sendBtn.disabled = !hasKey || sending;
+  }
+
+  /* ================= system 生成 ================= */
+  function buildSystem() {
+    var p = activeProfile();
+    var parts = [];
+    if (p.persona.trim()) parts.push(p.persona.trim());
+    if (p.memories.length > 0) {
+      var lines = p.memories.map(function (m) { return '- ' + m.text; });
+      parts.push('【現在のメモリ(このユーザーについて覚えていること)】\n' + lines.join('\n'));
+    }
+    parts.push('会話の中で長期的に覚えるべき事実があれば、返答の最後に [記憶提案: 内容] を1行で付けてよい。');
+    return parts.join('\n\n');
+  }
+
+  /* APIに送る messages(直近 MAX_TURNS 往復・エラー除外・交互整形) */
+  function buildApiMessages() {
+    var all = activeProfile().messages.filter(function (m) {
+      return m.role === 'user' || m.role === 'assistant';
+    });
+    var trimmed = all.slice(-MAX_TURNS * 2);
+    // 先頭が assistant なら落とす(Claude/Gemini対策)
+    while (trimmed.length && trimmed[0].role !== 'user') trimmed.shift();
+    // 同ロール連続は結合
+    var out = [];
+    for (var i = 0; i < trimmed.length; i++) {
+      var m = trimmed[i];
+      if (out.length && out[out.length - 1].role === m.role) {
+        out[out.length - 1].content += '\n' + m.content;
+      } else {
+        out.push({ role: m.role, content: m.content });
+      }
+    }
+    return out;
+  }
+
+  /* ================= API 呼び出し ================= */
+  function callApi(system, messages) {
+    var model = currentModel();
+    var key = currentKey();
+
+    if (api.provider === 'claude') {
+      return fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({ model: model, max_tokens: 2048, system: system, messages: messages })
+      }).then(handleHttp).then(function (j) {
+        var txt = (j.content || []).map(function (c) { return c.text || ''; }).join('');
+        if (!txt) throw new Error('返答が空でした');
+        return txt;
+      });
+    }
+
+    if (api.provider === 'openai') {
+      var msgs = [{ role: 'system', content: system }].concat(messages);
+      return fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'authorization': 'Bearer ' + key
+        },
+        body: JSON.stringify({ model: model, messages: msgs })
+      }).then(handleHttp).then(function (j) {
+        var txt = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+        if (!txt) throw new Error('返答が空でした');
+        return txt;
+      });
+    }
+
+    // gemini
+    var contents = messages.map(function (m) {
+      return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] };
+    });
+    return fetch('https://generativelanguage.googleapis.com/v1beta/models/' +
+        encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: contents
+      })
+    }).then(handleHttp).then(function (j) {
+      var cand = j.candidates && j.candidates[0];
+      var txt = cand && cand.content && cand.content.parts
+        ? cand.content.parts.map(function (p) { return p.text || ''; }).join('') : '';
+      if (!txt) throw new Error('返答が空でした');
+      return txt;
+    });
+  }
+
+  function handleHttp(res) {
+    if (res.ok) return res.json();
+    return res.text().then(function (t) {
+      var detail = t;
+      try {
+        var j = JSON.parse(t);
+        detail = (j.error && (j.error.message || j.error.type)) || t;
+      } catch (e) {}
+      throw new Error('APIエラー (' + res.status + '): ' + String(detail).slice(0, 300));
+    });
+  }
+
+  /* ================= 送信 ================= */
+  function send() {
+    if (sending) return;
+    var text = msgInput.value.trim();
+    if (!text || !currentKey()) return;
+
+    var p = activeProfile();
+    p.messages.push({ role: 'user', content: text, ts: Date.now() });
+    saveData();
+    msgInput.value = '';
+    autoGrow();
+    renderChat();
+
+    var system = buildSystem();
+    var apiMsgs = buildApiMessages();
+
+    sending = true;
+    updateSendState();
+
+    // 入力中インジケータ
+    var typing = makeBubbleRow('assistant', '・・・');
+    typing.classList.add('typing');
+    chatArea.appendChild(typing);
+    scrollBottom();
+
+    callApi(system, apiMsgs).then(function (reply) {
+      var parsed = extractSuggestion(reply);
+      var msg = { role: 'assistant', content: parsed.text, ts: Date.now() };
+      if (parsed.suggestion) {
+        msg.suggestion = parsed.suggestion;
+        msg.suggestionHandled = false;
+      }
+      p.messages.push(msg);
+    }).catch(function (err) {
+      p.messages.push({ role: 'error', content: '通信に失敗しました。\n' + err.message, ts: Date.now() });
+    }).then(function () {
+      sending = false;
+      saveData();
+      renderChat();
+      updateSendState();
+    });
+  }
+
+  /* [記憶提案: 〜] 行の抽出(表示テキストから除去) */
+  function extractSuggestion(reply) {
+    var lines = reply.split('\n');
+    var suggestion = null;
+    var kept = [];
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(SUGGEST_RE);
+      if (m && suggestion === null) {
+        suggestion = m[1].trim();
+      } else {
+        kept.push(lines[i]);
+      }
+    }
+    return { text: kept.join('\n').trim() || reply.trim(), suggestion: suggestion };
+  }
+
+  /* ================= プロファイル ================= */
+  function renderProfiles() {
+    var list = $('profList');
+    list.innerHTML = '';
+    data.profiles.forEach(function (p) {
+      var item = document.createElement('div');
+      item.className = 'prof-item' + (p.id === data.activeProfileId ? ' active' : '');
+      var name = document.createElement('div');
+      name.className = 'p-name';
+      name.textContent = p.name;
+      item.appendChild(name);
+      if (p.id === data.activeProfileId) {
+        var mark = document.createElement('div');
+        mark.className = 'p-mark';
+        mark.textContent = '使用中';
+        item.appendChild(mark);
+      } else {
+        var sw = document.createElement('button');
+        sw.className = 'mini-btn';
+        sw.textContent = '切替';
+        sw.addEventListener('click', function (e) {
+          e.stopPropagation();
+          data.activeProfileId = p.id;
+          saveData();
+          renderAll();
+        });
+        item.appendChild(sw);
+      }
+      var del = document.createElement('button');
+      del.className = 'mini-btn del';
+      del.textContent = '削除';
+      del.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (data.profiles.length <= 1) {
+          alert('最後のプロファイルは削除できません。');
+          return;
+        }
+        if (!confirm('プロファイル「' + p.name + '」を削除しますか?\n記憶と会話履歴もすべて消えます。')) return;
+        data.profiles = data.profiles.filter(function (x) { return x.id !== p.id; });
+        if (data.activeProfileId === p.id) data.activeProfileId = data.profiles[0].id;
+        saveData();
+        renderAll();
+      });
+      item.appendChild(del);
+      list.appendChild(item);
+    });
+
+    var p = activeProfile();
+    $('profName').value = p.name;
+    $('profPersona').value = p.persona;
+  }
+
+  /* ================= メモリ ================= */
+  function renderMemory() {
+    var p = activeProfile();
+    $('memTitle').textContent = '「' + p.name + '」の記憶一覧';
+    var list = $('memList');
+    list.innerHTML = '';
+    if (p.memories.length === 0) {
+      list.innerHTML = '<div class="empty-note">まだ記憶はありません</div>';
+      return;
+    }
+    p.memories.forEach(function (m) {
+      var item = document.createElement('div');
+      item.className = 'mem-item';
+      var t = document.createElement('div');
+      t.className = 'm-text';
+      t.textContent = m.text;
+      var ed = document.createElement('button');
+      ed.className = 'mini-btn';
+      ed.textContent = '編集';
+      ed.addEventListener('click', function () {
+        var v = prompt('記憶を編集', m.text);
+        if (v === null) return;
+        v = v.trim();
+        if (!v) return;
+        m.text = v;
+        saveData();
+        renderMemory();
+      });
+      var del = document.createElement('button');
+      del.className = 'mini-btn del';
+      del.textContent = '削除';
+      del.addEventListener('click', function () {
+        if (!confirm('この記憶を削除しますか?\n「' + m.text + '」')) return;
+        p.memories = p.memories.filter(function (x) { return x.id !== m.id; });
+        saveData();
+        renderMemory();
+      });
+      item.appendChild(t);
+      item.appendChild(ed);
+      item.appendChild(del);
+      list.appendChild(item);
+    });
+  }
+
+  /* ================= 設定 ================= */
+  function renderModelOptions() {
+    var sel = $('setModel');
+    sel.innerHTML = '';
+    MODEL_PRESETS[api.provider].forEach(function (m) {
+      var o = document.createElement('option');
+      o.value = m;
+      o.textContent = m;
+      sel.appendChild(o);
+    });
+    if (MODEL_PRESETS[api.provider].indexOf(api.model) !== -1) sel.value = api.model;
+    else { sel.value = MODEL_PRESETS[api.provider][0]; }
+  }
+
+  function renderSettings() {
+    $('setProvider').value = api.provider;
+    renderModelOptions();
+    $('setCustomModel').value = api.customModel || '';
+    $('keyClaude').value = keys.claude || '';
+    $('keyOpenai').value = keys.openai || '';
+    $('keyGemini').value = keys.gemini || '';
+  }
+
+  /* ================= バックアップ ================= */
+  function doExport() {
+    var payload = {
+      app: 'aichat',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data: data,
+      api: { provider: api.provider, model: api.model, customModel: api.customModel } // キーは含めない
+    };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    var d = new Date();
+    a.download = 'aichat_backup_' + d.getFullYear() +
+      ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+  }
+
+  function doImport(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var j = JSON.parse(reader.result);
+        var d = j && j.data;
+        if (!d || !Array.isArray(d.profiles) || d.profiles.length === 0) {
+          throw new Error('形式が違います');
+        }
+        if (!confirm('バックアップを読み込みます。現在の全プロファイルは上書きされます。よろしいですか?')) return;
+        data = d;
+        if (!data.profiles.some(function (p) { return p.id === data.activeProfileId; })) {
+          data.activeProfileId = data.profiles[0].id;
+        }
+        if (j.api && MODEL_PRESETS[j.api.provider]) {
+          api.provider = j.api.provider;
+          api.model = j.api.model || MODEL_PRESETS[api.provider][0];
+          api.customModel = j.api.customModel || '';
+          saveApi();
+        }
+        saveData();
+        renderAll();
+        alert('読み込みました。');
+      } catch (e) {
+        alert('読み込みに失敗しました: ' + e.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  /* ================= 画面制御 ================= */
+  function renderAll() {
+    renderHeader();
+    renderChat();
+    renderProfiles();
+    renderMemory();
+    renderSettings();
+    updateSendState();
+  }
+
+  function openPanel(id) {
+    document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('open'); });
+    $(id).classList.add('open');
+  }
+  function closePanels() {
+    document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('open'); });
+    renderAll();
+  }
+
+  function autoGrow() {
+    msgInput.style.height = 'auto';
+    msgInput.style.height = Math.min(msgInput.scrollHeight, 110) + 'px';
+  }
+
+  /* ================= イベント ================= */
+  $('btnProfiles').addEventListener('click', function () { renderProfiles(); openPanel('panelProfiles'); });
+  $('btnMemory').addEventListener('click', function () { renderMemory(); openPanel('panelMemory'); });
+  $('btnSettings').addEventListener('click', function () { renderSettings(); openPanel('panelSettings'); });
+  document.querySelectorAll('[data-close]').forEach(function (b) {
+    b.addEventListener('click', closePanels);
+  });
+
+  sendBtn.addEventListener('click', send);
+  msgInput.addEventListener('input', autoGrow);
+
+  $('btnAddProfile').addEventListener('click', function () {
+    var name = prompt('新しいプロファイルの名前');
+    if (name === null) return;
+    name = name.trim() || '新しい人格';
+    var p = newProfile(name);
+    data.profiles.push(p);
+    data.activeProfileId = p.id;
+    saveData();
+    renderAll();
+  });
+
+  $('btnSaveProfile').addEventListener('click', function () {
+    var p = activeProfile();
+    p.name = $('profName').value.trim() || p.name;
+    p.persona = $('profPersona').value;
+    saveData();
+    renderHeader();
+    renderProfiles();
+    alert('保存しました。');
+  });
+
+  $('btnClearHistory').addEventListener('click', function () {
+    var p = activeProfile();
+    if (!confirm('「' + p.name + '」の会話履歴をすべて削除しますか?\nこの操作は取り消せません。')) return;
+    p.messages = [];
+    saveData();
+    renderChat();
+    alert('削除しました。');
+  });
+
+  $('btnAddMem').addEventListener('click', function () {
+    var v = $('memInput').value.trim();
+    if (!v) return;
+    activeProfile().memories.push({ id: uid(), text: v });
+    $('memInput').value = '';
+    saveData();
+    renderMemory();
+  });
+
+  $('setProvider').addEventListener('change', function () {
+    api.provider = this.value;
+    renderModelOptions();
+    api.model = $('setModel').value;
+    saveApi();
+    updateSendState();
+  });
+  $('setModel').addEventListener('change', function () {
+    api.model = this.value;
+    saveApi();
+  });
+  $('setCustomModel').addEventListener('input', function () {
+    api.customModel = this.value;
+    saveApi();
+  });
+
+  $('btnSaveSettings').addEventListener('click', function () {
+    keys.claude = $('keyClaude').value.trim();
+    keys.openai = $('keyOpenai').value.trim();
+    keys.gemini = $('keyGemini').value.trim();
+    api.provider = $('setProvider').value;
+    api.model = $('setModel').value;
+    api.customModel = $('setCustomModel').value.trim();
+    saveKeys();
+    saveApi();
+    updateSendState();
+    alert('設定を保存しました。');
+  });
+
+  $('btnExport').addEventListener('click', doExport);
+  $('btnImport').addEventListener('click', function () { $('importFile').click(); });
+  $('importFile').addEventListener('change', function () {
+    if (this.files && this.files[0]) doImport(this.files[0]);
+    this.value = '';
+  });
+
+  /* ================= 起動 ================= */
+  load();
+  saveData();
+  renderAll();
+})();
+</script>
+</body>
+</html>
