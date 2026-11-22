@@ -147,6 +147,25 @@
   }
   .mem-suggest button.ok { background: var(--aka); border-color: var(--aka-deep); color: var(--white); }
 
+  /* 返答ごとの使用量・操作 */
+  .msg-meta {
+    max-width: 85%;
+    margin: -6px 0 12px 8px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: #8A8171;
+  }
+  .msg-meta .warn { color: var(--aka-deep); }
+  .msg-actions { display: flex; gap: 8px; margin: -4px 0 14px 6px; }
+  #usageBar {
+    font-size: 11px;
+    color: #6E6656;
+    text-align: center;
+    padding-bottom: 6px;
+    line-height: 1.5;
+  }
+  #usageBar:empty { display: none; }
+
   /* ===== 入力欄 ===== */
   #inputBar {
     flex-shrink: 0;
@@ -313,6 +332,7 @@
   <!-- 入力欄 -->
   <div id="inputBar">
     <div id="noKeyNotice">設定からAPIキーを入力してください</div>
+    <div id="usageBar"></div>
     <div class="row">
       <textarea id="msgInput" rows="1" placeholder="メッセージを入力"></textarea>
       <button id="sendBtn">送信</button>
@@ -332,6 +352,14 @@
       <div id="threadList"></div>
       <button class="btn primary block" id="btnAddThread">＋ 新しいスレッドを作る</button>
       <p class="note">会話履歴はスレッドごとに分かれます。記憶(メモリ)はプロファイル共通です。</p>
+    </div>
+    <div class="sec">
+      <h3>引き継ぎ</h3>
+      <button class="btn primary block" id="btnHandoff">この会話を畳んで、新しいスレッドへ引き継ぐ</button>
+      <p class="note">今のスレッドで引き継ぎ書を書かせて、それを持った新しいスレッドを作ります。会話が長くなったら、キャッシュが温かいうち(話した直後)に使うと安く済みます。依頼文は「設定」で変えられます。</p>
+      <label class="f-label">このスレッドの引き継ぎメモ(前のスレッドから持ち込んだ内容。毎回の送信に含まれます)</label>
+      <textarea id="threadCarry" rows="8" placeholder="引き継ぎで作ったスレッドには、ここに引き継ぎ書が入ります。手で書いても構いません。"></textarea>
+      <button class="btn block" id="btnSaveCarry">引き継ぎメモを保存する</button>
     </div>
   </div>
 </div>
@@ -354,6 +382,15 @@
       <input type="text" id="profName">
       <label class="f-label">人格設定文(systemプロンプト)</label>
       <textarea id="profPersona" rows="7" placeholder="例:あなたは京都在住の落ち着いた口調の相談相手です。"></textarea>
+      <p class="note" id="personaCount"></p>
+      <label class="f-label">資料(設定資料など。人格設定文のあとに毎回含まれます)</label>
+      <textarea id="profResources" rows="7" placeholder="例:キャラクターの公式設定、年表、用語集など"></textarea>
+      <p class="note" id="resourcesCount"></p>
+      <label class="f-label">資料ファイル(テキスト形式のファイルを添付)</label>
+      <div id="fileList"></div>
+      <button class="btn block" id="btnAddFile">＋ ファイルを添付する</button>
+      <input type="file" id="resFile" multiple accept=".txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/*" style="display:none">
+      <p class="note">.txt や .md などの文字だけのファイルに対応しています(UTF-8とShift_JISを自動判別)。PDFやWordは読めないので、テキストに変換してから添付してください。添付した中身はこの端末に保存され、毎回の送信に含まれます。</p>
       <button class="btn primary block" id="btnSaveProfile">保存する</button>
     </div>
     <div class="sec">
@@ -400,6 +437,35 @@
       <select id="setModel"></select>
       <label class="f-label">モデル名を自由入力で上書き(空欄なら上の選択を使用)</label>
       <input type="text" id="setCustomModel" autocapitalize="off" autocorrect="off" placeholder="例: claude-sonnet-5">
+      <label class="f-label">エフォート(どれだけ深く考えて書くか)</label>
+      <select id="setEffort"></select>
+      <p class="note" id="effortNote"></p>
+      <div id="thinkingBox">
+        <label class="f-label">思考(Claude)</label>
+        <select id="setThinking">
+          <option value="">指定しない(モデルの標準)</option>
+          <option value="adaptive">考える(adaptive thinking)</option>
+        </select>
+        <p class="note">Opus 5.5とFable 5.2は常に考えるので、ここは関係ありません。Opus 4.6〜4.8でエフォートを効かせたい時は「考える」にしてください。考えた分も返事の長さの上限に含まれます。会話の途中で切り替えると、キャッシュが作り直しになることがあります。</p>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>送信の設定</h3>
+      <label class="f-label">返事の長さの上限(max_tokens)</label>
+      <input type="text" id="setMaxTokens" inputmode="numeric">
+      <p class="note">上限で返事が途中で切れた時は、返事の下に表示されます。Claudeのみ有効です。</p>
+      <label class="f-label">送る会話履歴(0 = スレッドの全部)</label>
+      <input type="text" id="setHistoryTurns" inputmode="numeric">
+      <p class="note">0のままがおすすめです。直近だけに絞ると、古い発言が毎回ずれて落ちるので、キャッシュが効かなくなります。長くなったら「部屋」の引き継ぎで畳んでください。</p>
+      <label class="f-label">キャッシュの持ち時間(Claudeのみ)</label>
+      <select id="setCacheTtl">
+        <option value="5m">5分(標準)</option>
+        <option value="1h">1時間(書き込みが少し高い)</option>
+      </select>
+      <p class="note">間を空けずに話すなら5分で十分です。休憩を挟みながら話すなら1時間の方が得になることがあります。</p>
+      <label class="f-label">引き継ぎ書の依頼文</label>
+      <textarea id="setHandoffPrompt" rows="8"></textarea>
+      <button class="btn primary block" id="btnSaveSend">送信の設定を保存する</button>
     </div>
     <div class="sec">
       <h3>APIキー</h3>
@@ -430,13 +496,32 @@
   var LS_DATA = 'aichat_data';
   var LS_KEYS = 'aichat_keys';
   var LS_API  = 'aichat_api';
-  var MAX_TURNS = 30;               // APIに送る直近の往復数
+  var DEFAULT_MAX_TOKENS = 8000;    // 返事の長さの上限(Claude)
+  var DEFAULT_HANDOFF_PROMPT =
+    '〔引き継ぎ〕この会話を新しいスレッドへ引き継ぐための引き継ぎ書を書いてください。物語の外からの整理として、次の三つを見出し付きで。\n' +
+    '1. 物語の骨格:これまでの出来事、関係の段階、交わした約束、残っている伏線、誰が何を知っているか(箇条書き)\n' +
+    '2. 現在地:場所、時刻、二人の位置と体勢、場の空気、未完了の意図や行動\n' +
+    '3. 質感の見本:この会話の中から、文体が崩れていない地の文を一節(200〜400字)そのまま抜き出す';
   var SUGGEST_RE = /^\s*\[記憶提案[::]\s*([\s\S]+?)\]\s*$/;
 
   var MODEL_PRESETS = {
-    claude: ['claude-sonnet-5', 'claude-opus-4-8', 'claude-haiku-4-5-20251001'],
-    openai: ['gpt-5-mini', 'gpt-5', 'gpt-4o-mini'],
-    gemini: ['gemini-2.5-flash', 'gemini-2.5-pro']
+    claude: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-2', 'claude-fable-5-1', 'claude-fable-5',
+             'claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-haiku-5-5'],
+    openai: ['gpt-6.2-sol', 'gpt-6-sol', 'gpt-5.6-sol', 'gpt-5.5-2026-04-23'],
+    gemini: ['gemini-4-carbon', 'gemini-4-neon', 'gemini-4-hydrogen', 'gemini-4-argon',
+             'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.1-pro-preview']
+  };
+
+  /* エフォートの選択肢(空 = 指定しない) */
+  var EFFORT_OPTIONS = {
+    claude: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
+    openai: ['', 'minimal', 'low', 'medium', 'high'],
+    gemini: ['', 'minimal', 'low', 'medium', 'high']
+  };
+  var EFFORT_NOTES = {
+    claude: 'Claudeの output_config.effort です。モデルの標準はOpus 5.5とHaiku 5.5がmedium、他はhigh。xhighはOpus 4.6には無く、選ぶとエラーになります。',
+    openai: 'OpenAIの reasoning_effort です。使える値はモデルによって違います。合わない値だとエラーが返るので、その時は「指定しない」に戻してください。',
+    gemini: 'Geminiの thinkingConfig.thinkingLevel です。使える値はモデルによって違います。合わない値だとエラーが返るので、その時は「指定しない」に戻してください。'
   };
 
   /* ================= 状態 ================= */
@@ -468,12 +553,12 @@
   }
 
   function newThread(name, messages) {
-    return { id: uid(), name: name || '新しいスレッド', messages: messages || [] };
+    return { id: uid(), name: name || '新しいスレッド', messages: messages || [], carry: '' };
   }
 
   function newProfile(name) {
     var t = newThread('最初のスレッド');
-    return { id: uid(), name: name || '新しい人格', persona: '', memories: [],
+    return { id: uid(), name: name || '新しい人格', persona: '', resources: '', files: [], memories: [],
              threads: [t], activeThreadId: t.id };
   }
 
@@ -485,10 +570,15 @@
       p.activeThreadId = t.id;
     }
     delete p.messages;
+    if (typeof p.persona !== 'string') p.persona = '';
+    if (typeof p.resources !== 'string') p.resources = '';
+    if (!Array.isArray(p.files)) p.files = [];
+    if (!Array.isArray(p.memories)) p.memories = [];
     p.threads.forEach(function (t) {
       if (!Array.isArray(t.messages)) t.messages = [];
       if (!t.id) t.id = uid();
       if (!t.name) t.name = '新しいスレッド';
+      if (typeof t.carry !== 'string') t.carry = '';
     });
     if (!p.threads.some(function (t) { return t.id === p.activeThreadId; })) {
       p.activeThreadId = p.threads[0].id;
@@ -511,9 +601,28 @@
     if (!keys) keys = { claude: '', openai: '', gemini: '' };
     if (!api) api = { provider: 'claude', model: MODEL_PRESETS.claude[0], customModel: '' };
     if (!MODEL_PRESETS[api.provider]) api.provider = 'claude';
+    fillApiDefaults();
   }
 
-  function saveData() { localStorage.setItem(LS_DATA, JSON.stringify(data)); }
+  function fillApiDefaults() {
+    if (!(api.maxTokens > 0)) api.maxTokens = DEFAULT_MAX_TOKENS;
+    if (!(api.historyTurns >= 0)) api.historyTurns = 0;
+    if (api.cacheTtl !== '1h') api.cacheTtl = '5m';
+    if (typeof api.handoffPrompt !== 'string' || !api.handoffPrompt.trim()) api.handoffPrompt = DEFAULT_HANDOFF_PROMPT;
+    if (!api.effort || typeof api.effort !== 'object') api.effort = { claude: '', openai: '', gemini: '' };
+    Object.keys(EFFORT_OPTIONS).forEach(function (k) {
+      if (EFFORT_OPTIONS[k].indexOf(api.effort[k]) === -1) api.effort[k] = '';
+    });
+    if (api.thinking !== 'adaptive') api.thinking = '';
+  }
+
+  function saveData() {
+    try {
+      localStorage.setItem(LS_DATA, JSON.stringify(data));
+    } catch (e) {
+      alert('この端末の保存領域がいっぱいで、保存できませんでした。\nバックアップを書き出してから、古いスレッドや大きな資料ファイルを削除してください。');
+    }
+  }
   function saveKeys() { localStorage.setItem(LS_KEYS, JSON.stringify(keys)); }
   function saveApi()  { localStorage.setItem(LS_API,  JSON.stringify(api)); }
 
@@ -587,12 +696,56 @@
     return sep;
   }
 
+  function fmtNum(n) {
+    n = n || 0;
+    if (n >= 10000) return (Math.round(n / 1000) / 10) + '万';
+    return String(n);
+  }
+
+  function usageText(u) {
+    if (!u) return '';
+    var parts = ['入力 ' + fmtNum(u.input)];
+    if (u.cacheRead) parts.push('キャッシュ読取 ' + fmtNum(u.cacheRead));
+    if (u.cacheWrite) parts.push('キャッシュ書込 ' + fmtNum(u.cacheWrite));
+    parts.push('出力 ' + fmtNum(u.output));
+    return parts.join(' ・ ');
+  }
+
+  function makeMeta(m) {
+    var meta = document.createElement('div');
+    meta.className = 'msg-meta';
+    var line = [];
+    if (m.model) line.push(m.model);
+    if (m.usage) line.push(usageText(m.usage));
+    meta.textContent = line.join(' / ');
+    if (m.truncated) {
+      var w = document.createElement('div');
+      w.className = 'warn';
+      w.textContent = '※返事の長さの上限に達して、途中で切れています(設定で上限を上げられます)';
+      meta.appendChild(w);
+    }
+    return meta;
+  }
+
+  function makeRegenButton(label) {
+    var box = document.createElement('div');
+    box.className = 'msg-actions';
+    var b = document.createElement('button');
+    b.className = 'mini-btn';
+    b.textContent = label;
+    b.disabled = sending;
+    b.addEventListener('click', regenerate);
+    box.appendChild(b);
+    return box;
+  }
+
   function renderChat() {
     chatArea.innerHTML = '';
     var msgs = activeThread().messages;
     var lastDate = null;
     for (var i = 0; i < msgs.length; i++) {
       var m = msgs[i];
+      var isLast = (i === msgs.length - 1);
       if (m.ts) {
         var dateStr = fmtDate(new Date(m.ts));
         if (dateStr !== lastDate) {
@@ -601,11 +754,29 @@
         }
       }
       chatArea.appendChild(makeBubbleRow(m.role, m.content));
+      if (m.role === 'assistant' && (m.usage || m.truncated)) {
+        chatArea.appendChild(makeMeta(m));
+      }
       if (m.role === 'assistant' && m.suggestion && !m.suggestionHandled) {
         chatArea.appendChild(makeSuggestCard(m));
       }
+      if (isLast && !sending && m.role === 'assistant') chatArea.appendChild(makeRegenButton('書き直す'));
+      if (isLast && !sending && m.role === 'error') chatArea.appendChild(makeRegenButton('もう一度送る'));
     }
+    renderUsageBar();
     scrollBottom();
+  }
+
+  /* 入力欄の上:このスレッドの累計と、直近の会話の大きさ */
+  function renderUsageBar() {
+    var th = activeThread();
+    var tot = th.spent;
+    var last = null;
+    th.messages.forEach(function (m) { if (m.usage) last = m.usage; });
+    if (!tot || !last) { $('usageBar').textContent = ''; return; }
+    var size = (last.input || 0) + (last.cacheRead || 0) + (last.cacheWrite || 0);
+    $('usageBar').textContent = 'この部屋の累計:' + usageText(tot) +
+      '　/　直近の会話の大きさ 約' + fmtNum(size) + 'トークン';
   }
 
   function scrollBottom() {
@@ -619,115 +790,251 @@
   }
 
   /* ================= system 生成 ================= */
-  /* prevTs: 今回送信の直前にあったメッセージの日時(なければ null) */
-  function buildSystem(prevTs) {
+  /* 毎回同じ中身になるように作る(日時などの変わるものは入れない)。
+     ここが変わらなければ、キャッシュが効く。 */
+  function buildSystem(th) {
     var p = activeProfile();
     var parts = [];
     if (p.persona.trim()) parts.push(p.persona.trim());
+    if (p.resources.trim()) parts.push('【資料】\n' + p.resources.trim());
+    p.files.forEach(function (f) {
+      if (f.text && f.text.trim()) parts.push('【資料:' + f.name + '】\n' + f.text.trim());
+    });
+    if (th.carry && th.carry.trim()) parts.push('【前のスレッドからの引き継ぎ】\n' + th.carry.trim());
     if (p.memories.length > 0) {
       var lines = p.memories.map(function (m) { return '- ' + m.text; });
       parts.push('【現在のメモリ(このユーザーについて覚えていること)】\n' + lines.join('\n'));
     }
     parts.push('会話の中で長期的に覚えるべき事実があれば、返答の最後に [記憶提案: 内容] を1行で付けてよい。');
-    var timeLines = ['【現在日時】' + fmtDateTime(new Date())];
-    if (prevTs) {
-      timeLines.push('【直前のメッセージからの経過時間】' + fmtElapsed(Date.now() - prevTs));
-    }
-    timeLines.push('時間帯や間隔に自然に言及してよいが、毎回はしない。');
-    parts.push(timeLines.join('\n'));
+    parts.push('ユーザーの各発言の先頭には【送信日時】の注記が付いている。時間帯や間隔に自然に言及してよいが、毎回はしない。注記そのものを返答で繰り返さない。');
     return parts.join('\n\n');
   }
 
-  /* APIに送る messages(現在のスレッドの直近 MAX_TURNS 往復・エラー除外・交互整形) */
-  function buildApiMessages() {
-    var all = activeThread().messages.filter(function (m) {
+  /* 発言ごとの日時注記。保存済みの日時から作るので、毎回同じ文字列になる */
+  function stampFor(m, prevTs) {
+    if (!m.ts) return '';
+    var s = '【送信日時】' + fmtDateTime(new Date(m.ts));
+    if (prevTs) s += '(前の発言から' + fmtElapsed(m.ts - prevTs) + ')';
+    return s + '\n';
+  }
+
+  /* APIに送る messages(エラー除外・日時注記・交互整形) */
+  function buildApiMessages(th) {
+    var all = th.messages.filter(function (m) {
       return m.role === 'user' || m.role === 'assistant';
     });
-    var trimmed = all.slice(-MAX_TURNS * 2);
+    var withStamp = [];
+    var prevTs = null;
+    for (var i = 0; i < all.length; i++) {
+      var m = all[i];
+      var content = m.role === 'user' ? stampFor(m, prevTs) + m.content : m.content;
+      withStamp.push({ role: m.role, content: content });
+      if (m.ts) prevTs = m.ts;
+    }
+    var turns = api.historyTurns > 0 ? withStamp.slice(-api.historyTurns * 2) : withStamp;
     // 先頭が assistant なら落とす(Claude/Gemini対策)
-    while (trimmed.length && trimmed[0].role !== 'user') trimmed.shift();
+    while (turns.length && turns[0].role !== 'user') turns = turns.slice(1);
     // 同ロール連続は結合
     var out = [];
-    for (var i = 0; i < trimmed.length; i++) {
-      var m = trimmed[i];
-      if (out.length && out[out.length - 1].role === m.role) {
-        out[out.length - 1].content += '\n' + m.content;
+    for (var j = 0; j < turns.length; j++) {
+      var t = turns[j];
+      if (out.length && out[out.length - 1].role === t.role) {
+        out[out.length - 1].content += '\n' + t.content;
       } else {
-        out.push({ role: m.role, content: m.content });
+        out.push({ role: t.role, content: t.content });
       }
     }
     return out;
   }
 
   /* ================= API 呼び出し ================= */
-  function callApi(system, messages) {
-    var model = currentModel();
-    var key = currentKey();
+  /* 返り値: Promise<{ text, usage:{input,cacheRead,cacheWrite,output}, truncated }>
+     onDelta(textSoFar) は流しながら表示するために呼ばれる(Claudeのみ) */
+  function callApi(system, messages, onDelta) {
+    if (api.provider === 'claude') return callClaude(system, messages, onDelta, api.cacheTtl === '1h');
+    if (api.provider === 'openai') return callOpenai(system, messages);
+    return callGemini(system, messages);
+  }
 
-    if (api.provider === 'claude') {
-      return fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({ model: model, max_tokens: 2048, system: system, messages: messages })
-      }).then(handleHttp).then(function (j) {
-        var txt = (j.content || []).map(function (c) { return c.text || ''; }).join('');
-        if (!txt) throw new Error('返答が空でした');
-        return txt;
-      });
+  function cacheMark(longTtl) {
+    return longTtl ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
+  }
+
+  function callClaude(system, messages, onDelta, longTtl) {
+    var cc = cacheMark(longTtl);
+    // 最後の発言に控えの印。ここまでの全部が次回のキャッシュになる
+    var msgs = messages.map(function (m, i) {
+      if (i !== messages.length - 1) return { role: m.role, content: m.content };
+      return { role: m.role, content: [{ type: 'text', text: m.content, cache_control: cc }] };
+    });
+    var body = {
+      model: currentModel(),
+      max_tokens: api.maxTokens,
+      stream: true,
+      system: [{ type: 'text', text: system, cache_control: cc }],
+      messages: msgs
+    };
+    if (api.effort.claude) body.output_config = { effort: api.effort.claude };
+    if (api.thinking === 'adaptive') body.thinking = { type: 'adaptive' };
+    return fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': currentKey(),
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (!res.ok) {
+        return res.text().then(function (t) {
+          // 1時間キャッシュが使えない場合は、標準の持ち時間でやり直す
+          if (longTtl && res.status === 400 && /ttl/i.test(t)) {
+            return callClaude(system, messages, onDelta, false);
+          }
+          throw httpError(res.status, t);
+        });
+      }
+      return readClaudeStream(res, onDelta);
+    });
+  }
+
+  function readClaudeStream(res, onDelta) {
+    var state = { text: '', usage: {}, stop: null, buf: '' };
+
+    function handleEvent(raw) {
+      var dataLines = raw.split('\n').filter(function (l) { return l.indexOf('data:') === 0; });
+      if (!dataLines.length) return;
+      var j;
+      try { j = JSON.parse(dataLines.map(function (l) { return l.slice(5).trim(); }).join('')); }
+      catch (e) { return; }
+      if (j.type === 'message_start' && j.message && j.message.usage) {
+        mergeUsage(state.usage, j.message.usage);
+      } else if (j.type === 'content_block_delta' && j.delta && j.delta.type === 'text_delta') {
+        state.text += j.delta.text;
+        if (onDelta) onDelta(state.text);
+      } else if (j.type === 'message_delta') {
+        if (j.delta && j.delta.stop_reason) state.stop = j.delta.stop_reason;
+        if (j.usage) mergeUsage(state.usage, j.usage);
+      } else if (j.type === 'error') {
+        throw new Error('APIエラー: ' + ((j.error && j.error.message) || '不明なエラー'));
+      }
     }
 
-    if (api.provider === 'openai') {
-      var msgs = [{ role: 'system', content: system }].concat(messages);
-      return fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'authorization': 'Bearer ' + key
-        },
-        body: JSON.stringify({ model: model, messages: msgs })
-      }).then(handleHttp).then(function (j) {
-        var txt = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-        if (!txt) throw new Error('返答が空でした');
-        return txt;
-      });
+    function feed(chunk) {
+      state.buf += chunk.replace(/\r\n/g, '\n');
+      var idx;
+      while ((idx = state.buf.indexOf('\n\n')) !== -1) {
+        handleEvent(state.buf.slice(0, idx));
+        state.buf = state.buf.slice(idx + 2);
+      }
     }
 
-    // gemini
+    function finish() {
+      if (state.buf.trim()) handleEvent(state.buf);
+      if (!state.text) throw new Error('返答が空でした');
+      var u = state.usage;
+      return {
+        text: state.text,
+        usage: {
+          input: u.input_tokens || 0,
+          cacheRead: u.cache_read_input_tokens || 0,
+          cacheWrite: u.cache_creation_input_tokens || 0,
+          output: u.output_tokens || 0
+        },
+        truncated: state.stop === 'max_tokens'
+      };
+    }
+
+    if (res.body && res.body.getReader && typeof TextDecoder !== 'undefined') {
+      var reader = res.body.getReader();
+      var dec = new TextDecoder();
+      var pump = function () {
+        return reader.read().then(function (r) {
+          if (r.done) { feed(dec.decode()); return finish(); }
+          feed(dec.decode(r.value, { stream: true }));
+          return pump();
+        });
+      };
+      return pump();
+    }
+    return res.text().then(function (t) { feed(t); return finish(); });
+  }
+
+  function mergeUsage(dst, src) {
+    Object.keys(src).forEach(function (k) {
+      if (typeof src[k] === 'number') dst[k] = src[k];
+    });
+  }
+
+  function callOpenai(system, messages) {
+    var msgs = [{ role: 'system', content: system }].concat(messages);
+    return fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'authorization': 'Bearer ' + currentKey()
+      },
+      body: JSON.stringify(api.effort.openai
+        ? { model: currentModel(), messages: msgs, reasoning_effort: api.effort.openai }
+        : { model: currentModel(), messages: msgs })
+    }).then(handleHttp).then(function (j) {
+      var c = j.choices && j.choices[0];
+      var txt = c && c.message && c.message.content;
+      if (!txt) throw new Error('返答が空でした');
+      var u = j.usage || {};
+      var cached = (u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) || 0;
+      return {
+        text: txt,
+        usage: { input: (u.prompt_tokens || 0) - cached, cacheRead: cached, cacheWrite: 0, output: u.completion_tokens || 0 },
+        truncated: c.finish_reason === 'length'
+      };
+    });
+  }
+
+  function callGemini(system, messages) {
     var contents = messages.map(function (m) {
       return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] };
     });
+    var gbody = {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: contents
+    };
+    if (api.effort.gemini) gbody.generationConfig = { thinkingConfig: { thinkingLevel: api.effort.gemini } };
     return fetch('https://generativelanguage.googleapis.com/v1beta/models/' +
-        encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key), {
+        encodeURIComponent(currentModel()) + ':generateContent?key=' + encodeURIComponent(currentKey()), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: contents
-      })
+      body: JSON.stringify(gbody)
     }).then(handleHttp).then(function (j) {
       var cand = j.candidates && j.candidates[0];
+      // 思考の部分(thought: true)は表示しない
       var txt = cand && cand.content && cand.content.parts
-        ? cand.content.parts.map(function (p) { return p.text || ''; }).join('') : '';
+        ? cand.content.parts.filter(function (p) { return !p.thought; })
+            .map(function (p) { return p.text || ''; }).join('') : '';
       if (!txt) throw new Error('返答が空でした');
-      return txt;
+      var u = j.usageMetadata || {};
+      var cached = u.cachedContentTokenCount || 0;
+      return {
+        text: txt,
+        usage: { input: (u.promptTokenCount || 0) - cached, cacheRead: cached, cacheWrite: 0, output: u.candidatesTokenCount || 0 },
+        truncated: cand.finishReason === 'MAX_TOKENS'
+      };
     });
+  }
+
+  function httpError(status, t) {
+    var detail = t;
+    try {
+      var j = JSON.parse(t);
+      detail = (j.error && (j.error.message || j.error.type)) || t;
+    } catch (e) {}
+    return new Error('APIエラー (' + status + '): ' + String(detail).slice(0, 300));
   }
 
   function handleHttp(res) {
     if (res.ok) return res.json();
-    return res.text().then(function (t) {
-      var detail = t;
-      try {
-        var j = JSON.parse(t);
-        detail = (j.error && (j.error.message || j.error.type)) || t;
-      } catch (e) {}
-      throw new Error('APIエラー (' + res.status + '): ' + String(detail).slice(0, 300));
-    });
+    return res.text().then(function (t) { throw httpError(res.status, t); });
   }
 
   /* ================= 送信 ================= */
@@ -737,36 +1044,63 @@
     if (!text || !currentKey()) return;
 
     var th = activeThread();
-    var prevTs = null;
-    for (var i = th.messages.length - 1; i >= 0; i--) {
-      if (th.messages[i].ts) { prevTs = th.messages[i].ts; break; }
-    }
     th.messages.push({ role: 'user', content: text, ts: Date.now() });
     saveData();
     msgInput.value = '';
     autoGrow();
-    renderChat();
+    runReply(th);
+  }
 
-    var system = buildSystem(prevTs);
-    var apiMsgs = buildApiMessages();
+  /* 最後の返事(またはエラー)を消して、同じ流れでもう一度返事をもらう */
+  function regenerate() {
+    if (sending || !currentKey()) return;
+    var th = activeThread();
+    while (th.messages.length && (th.messages[th.messages.length - 1].role === 'assistant' ||
+                                  th.messages[th.messages.length - 1].role === 'error')) {
+      th.messages.pop();
+    }
+    if (!th.messages.length) { renderChat(); return; }
+    saveData();
+    runReply(th);
+  }
 
+  /* スレッドの今の状態から返事をもらう。onDone(msg) は成功時のみ呼ばれる */
+  function runReply(th, onDone) {
     sending = true;
     updateSendState();
+    renderChat();
 
-    // 入力中インジケータ
+    var system = buildSystem(th);
+    var apiMsgs = buildApiMessages(th);
+
+    // 入力中インジケータ(流れてきた文はここに出す)
     var typing = makeBubbleRow('assistant', '・・・');
     typing.classList.add('typing');
     chatArea.appendChild(typing);
     scrollBottom();
+    var bubble = typing.querySelector('.bubble');
+    var onDelta = function (t) {
+      if (typing.classList.contains('typing')) typing.classList.remove('typing');
+      var nearBottom = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight < 80;
+      bubble.textContent = t;
+      if (nearBottom) scrollBottom();
+    };
 
-    callApi(system, apiMsgs).then(function (reply) {
-      var parsed = extractSuggestion(reply);
-      var msg = { role: 'assistant', content: parsed.text, ts: Date.now() };
+    var done = null;
+    callApi(system, apiMsgs, onDelta).then(function (r) {
+      var parsed = extractSuggestion(r.text);
+      var msg = { role: 'assistant', content: parsed.text, ts: Date.now(),
+                  model: currentModel(), usage: r.usage };
+      if (r.truncated) msg.truncated = true;
       if (parsed.suggestion) {
         msg.suggestion = parsed.suggestion;
         msg.suggestionHandled = false;
       }
       th.messages.push(msg);
+      // 書き直しで消えた返事の分も含めて、この部屋で使った量を貯めておく
+      if (!th.spent) th.spent = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+      ['input', 'cacheRead', 'cacheWrite', 'output'].forEach(function (k) { th.spent[k] += r.usage[k] || 0; });
+      done = msg;
     }).catch(function (err) {
       th.messages.push({ role: 'error', content: '通信に失敗しました。\n' + err.message, ts: Date.now() });
     }).then(function () {
@@ -774,6 +1108,7 @@
       saveData();
       renderChat();
       updateSendState();
+      if (done && onDone) onDone(done);
     });
   }
 
@@ -855,6 +1190,32 @@
       item.appendChild(del);
       list.appendChild(item);
     });
+    $('threadCarry').value = activeThread().carry || '';
+  }
+
+  /* 今のスレッドで引き継ぎ書を書かせて、それを持った新しいスレッドを作る */
+  function startHandoff() {
+    if (sending) return;
+    if (!currentKey()) { alert('設定からAPIキーを入力してください。'); return; }
+    var th = activeThread();
+    if (!th.messages.some(function (m) { return m.role === 'assistant'; })) {
+      alert('引き継ぐ会話がまだありません。');
+      return;
+    }
+    if (!confirm('今のスレッドで引き継ぎ書を書かせて、新しいスレッドを作ります。よろしいですか?')) return;
+    var p = activeProfile();
+    closePanels();
+    th.messages.push({ role: 'user', content: api.handoffPrompt, ts: Date.now() });
+    saveData();
+    runReply(th, function (msg) {
+      var nt = newThread(th.name + '(続き)');
+      nt.carry = msg.content;
+      p.threads.push(nt);
+      p.activeThreadId = nt.id;
+      saveData();
+      renderAll();
+      alert('新しいスレッド「' + nt.name + '」を作りました。\n引き継ぎ書は「部屋」の引き継ぎメモで確認・修正できます。');
+    });
   }
 
   /* ================= プロファイル ================= */
@@ -907,6 +1268,74 @@
     var p = activeProfile();
     $('profName').value = p.name;
     $('profPersona').value = p.persona;
+    $('profResources').value = p.resources || '';
+    updateCounts();
+    renderFiles();
+  }
+
+  function renderFiles() {
+    var p = activeProfile();
+    var list = $('fileList');
+    list.innerHTML = '';
+    p.files.forEach(function (f) {
+      var item = document.createElement('div');
+      item.className = 'mem-item';
+      var t = document.createElement('div');
+      t.className = 'm-text';
+      t.textContent = f.name + '(' + f.text.length + '文字)';
+      var del = document.createElement('button');
+      del.className = 'mini-btn del';
+      del.textContent = '削除';
+      del.addEventListener('click', function () {
+        if (!confirm('資料ファイル「' + f.name + '」を外しますか?')) return;
+        p.files = p.files.filter(function (x) { return x.id !== f.id; });
+        saveData();
+        renderFiles();
+      });
+      item.appendChild(t);
+      item.appendChild(del);
+      list.appendChild(item);
+    });
+  }
+
+  /* UTF-8で読めなければShift_JISとして読む */
+  function decodeText(buf) {
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(buf).replace(/^\uFEFF/, ''); }
+    catch (e) {
+      try { return new TextDecoder('shift_jis').decode(buf); }
+      catch (e2) { return new TextDecoder('utf-8').decode(buf); }
+    }
+  }
+
+  function addFiles(fileList) {
+    var p = activeProfile();
+    var files = Array.prototype.slice.call(fileList);
+    var reads = files.map(function (file) {
+      return new Promise(function (resolve) {
+        var r = new FileReader();
+        r.onload = function () { resolve({ name: file.name, text: decodeText(r.result) }); };
+        r.onerror = function () { resolve(null); };
+        r.readAsArrayBuffer(file);
+      });
+    });
+    Promise.all(reads).then(function (results) {
+      var added = 0;
+      results.forEach(function (res) {
+        if (!res || !res.text.trim()) return;
+        // 同じ名前のファイルは差し替える
+        p.files = p.files.filter(function (x) { return x.name !== res.name; });
+        p.files.push({ id: uid(), name: res.name, text: res.text });
+        added++;
+      });
+      saveData();
+      renderFiles();
+      if (added < results.length) alert('読み込めなかった、または中身が空のファイルがありました。');
+    });
+  }
+
+  function updateCounts() {
+    $('personaCount').textContent = $('profPersona').value.length + '文字';
+    $('resourcesCount').textContent = $('profResources').value.length + '文字';
   }
 
   /* ================= メモリ ================= */
@@ -974,16 +1403,43 @@
     $('keyClaude').value = keys.claude || '';
     $('keyOpenai').value = keys.openai || '';
     $('keyGemini').value = keys.gemini || '';
+    renderEffortOptions();
+    $('setThinking').value = api.thinking;
+    $('setMaxTokens').value = api.maxTokens;
+    $('setHistoryTurns').value = api.historyTurns;
+    $('setCacheTtl').value = api.cacheTtl;
+    $('setHandoffPrompt').value = api.handoffPrompt;
+  }
+
+  function renderEffortOptions() {
+    var sel = $('setEffort');
+    sel.innerHTML = '';
+    EFFORT_OPTIONS[api.provider].forEach(function (v) {
+      var o = document.createElement('option');
+      o.value = v;
+      o.textContent = v || '指定しない(モデルの標準)';
+      sel.appendChild(o);
+    });
+    sel.value = api.effort[api.provider] || '';
+    $('effortNote').textContent = EFFORT_NOTES[api.provider];
+    $('thinkingBox').style.display = api.provider === 'claude' ? 'block' : 'none';
+  }
+
+  function apiSettingsForExport() {
+    return { provider: api.provider, model: api.model, customModel: api.customModel,
+             maxTokens: api.maxTokens, historyTurns: api.historyTurns,
+             cacheTtl: api.cacheTtl, handoffPrompt: api.handoffPrompt,
+             effort: api.effort, thinking: api.thinking }; // キーは含めない
   }
 
   /* ================= バックアップ ================= */
   function doExport() {
     var payload = {
       app: 'aichat',
-      version: 2,  // v2: プロファイル配下にスレッド構造を持つ
+      version: 3,  // v3: 資料・引き継ぎメモ・送信の設定・使用量を含む
       exportedAt: new Date().toISOString(),
       data: data,
-      api: { provider: api.provider, model: api.model, customModel: api.customModel } // キーは含めない
+      api: apiSettingsForExport()
     };
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     var a = document.createElement('a');
@@ -1016,6 +1472,10 @@
           api.provider = j.api.provider;
           api.model = j.api.model || MODEL_PRESETS[api.provider][0];
           api.customModel = j.api.customModel || '';
+          ['maxTokens', 'historyTurns', 'cacheTtl', 'handoffPrompt', 'effort', 'thinking'].forEach(function (k) {
+            if (j.api[k] !== undefined) api[k] = j.api[k];
+          });
+          fillApiDefaults();
           saveApi();
         }
         saveData();
@@ -1091,6 +1551,7 @@
     var p = activeProfile();
     p.name = $('profName').value.trim() || p.name;
     p.persona = $('profPersona').value;
+    p.resources = $('profResources').value;
     saveData();
     renderHeader();
     renderProfiles();
@@ -1118,6 +1579,7 @@
   $('setProvider').addEventListener('change', function () {
     api.provider = this.value;
     renderModelOptions();
+    renderEffortOptions();
     api.model = $('setModel').value;
     saveApi();
     updateSendState();
@@ -1142,6 +1604,44 @@
     saveApi();
     updateSendState();
     alert('設定を保存しました。');
+  });
+
+  $('setEffort').addEventListener('change', function () {
+    api.effort[api.provider] = this.value;
+    saveApi();
+  });
+  $('setThinking').addEventListener('change', function () {
+    api.thinking = this.value;
+    saveApi();
+  });
+
+  $('btnAddFile').addEventListener('click', function () { $('resFile').click(); });
+  $('resFile').addEventListener('change', function () {
+    if (this.files && this.files.length) addFiles(this.files);
+    this.value = '';
+  });
+
+  $('profPersona').addEventListener('input', updateCounts);
+  $('profResources').addEventListener('input', updateCounts);
+
+  $('btnHandoff').addEventListener('click', startHandoff);
+  $('btnSaveCarry').addEventListener('click', function () {
+    activeThread().carry = $('threadCarry').value;
+    saveData();
+    alert('引き継ぎメモを保存しました。');
+  });
+
+  $('btnSaveSend').addEventListener('click', function () {
+    var mt = parseInt($('setMaxTokens').value, 10);
+    var ht = parseInt($('setHistoryTurns').value, 10);
+    api.maxTokens = mt > 0 ? mt : DEFAULT_MAX_TOKENS;
+    api.historyTurns = ht >= 0 ? ht : 0;
+    api.cacheTtl = $('setCacheTtl').value;
+    api.handoffPrompt = $('setHandoffPrompt').value;
+    fillApiDefaults();
+    saveApi();
+    renderSettings();
+    alert('送信の設定を保存しました。');
   });
 
   $('btnExport').addEventListener('click', doExport);
