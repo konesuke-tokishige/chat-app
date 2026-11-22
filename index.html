@@ -166,6 +166,22 @@
   }
   #usageBar:empty { display: none; }
 
+  /* 部屋ごとの資料の選択 */
+  .sel-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 14px;
+  }
+  .sel-item input { width: 20px; height: 20px; flex-shrink: 0; }
+  .sel-item .s-kind { font-size: 11px; color: #8A8171; flex-shrink: 0; }
+  .sel-item .s-name { flex: 1; word-break: break-word; }
+
   /* ===== 入力欄 ===== */
   #inputBar {
     flex-shrink: 0;
@@ -361,6 +377,17 @@
       <textarea id="threadCarry" rows="8" placeholder="引き継ぎで作ったスレッドには、ここに引き継ぎ書が入ります。手で書いても構いません。"></textarea>
       <button class="btn block" id="btnSaveCarry">引き継ぎメモを保存する</button>
     </div>
+    <div class="sec">
+      <h3>この部屋のプロット</h3>
+      <textarea id="threadPlot" rows="8" placeholder="例:現代AU。二人は札幌で同じ職場に勤める会社員。……"></textarea>
+      <button class="btn block" id="btnSavePlot">プロットを保存する</button>
+      <p class="note">この部屋だけの物語の特殊設定です。「冒頭のプロット」として毎回の送信に含まれ、人格設定文の既定より優先されます。引き継ぎで新しい部屋を作る時は、自動で一緒に写されます。</p>
+    </div>
+    <div class="sec">
+      <h3>この部屋で使う資料</h3>
+      <div id="threadResList"></div>
+      <p class="note">チェックを外した資料は、この部屋では送られません。新しく追加した資料は、最初はどの部屋でも使う状態になります。</p>
+    </div>
   </div>
 </div>
 
@@ -425,6 +452,25 @@
     <button class="hbtn" data-close>閉じる</button>
   </div>
   <div class="panel-body">
+    <div class="sec">
+      <h3>共通の前置き(全部の人格に効く)</h3>
+      <textarea id="commonPreface" rows="8" placeholder="例:言葉は日本語。場面は地の文と台詞で書き、見出しや箇条書きを場面に持ち込まない。"></textarea>
+      <p class="note" id="prefaceCount"></p>
+      <button class="btn primary block" id="btnSavePreface">共通の前置きを保存する</button>
+      <p class="note">公式でいう、設定画面のカスタム指示にあたります。どの人格でも、人格設定文より手前に付きます。</p>
+    </div>
+    <div class="sec">
+      <h3>共通の資料(全部の人格で使える)</h3>
+      <div id="commonFileList"></div>
+      <button class="btn block" id="btnAddCommonFile">＋ ファイルを添付する</button>
+      <input type="file" id="commonFile" multiple accept=".txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/*" style="display:none">
+      <label class="f-label">文字で追加する場合の資料名</label>
+      <input type="text" id="commonTextName" placeholder="例:明治四十年の旭川">
+      <label class="f-label">資料の中身</label>
+      <textarea id="commonTextBody" rows="6"></textarea>
+      <button class="btn block" id="btnAddCommonText">＋ 文字で追加する</button>
+      <p class="note">舞台の資料(明治の旭川、第七師団など)のように、どの人格が知っていてもおかしくない事実を置く場所です。どの部屋で使うかは「部屋」で選べます。</p>
+    </div>
     <div class="sec">
       <h3>API設定</h3>
       <label class="f-label">使用する会社</label>
@@ -496,6 +542,7 @@
   var LS_DATA = 'aichat_data';
   var LS_KEYS = 'aichat_keys';
   var LS_API  = 'aichat_api';
+  var PERSONA_TEXT_ID = 'persona-text'; // 人格の「資料」欄(手書き)を部屋ごとに選ぶための印
   var DEFAULT_MAX_TOKENS = 8000;    // 返事の長さの上限(Claude)
   var DEFAULT_HANDOFF_PROMPT =
     '〔引き継ぎ〕この会話を新しいスレッドへ引き継ぐための引き継ぎ書を書いてください。物語の外からの整理として、次の三つを見出し付きで。\n' +
@@ -553,7 +600,7 @@
   }
 
   function newThread(name, messages) {
-    return { id: uid(), name: name || '新しいスレッド', messages: messages || [], carry: '' };
+    return { id: uid(), name: name || '新しいスレッド', messages: messages || [], carry: '', plot: '', excluded: [] };
   }
 
   function newProfile(name) {
@@ -579,6 +626,8 @@
       if (!t.id) t.id = uid();
       if (!t.name) t.name = '新しいスレッド';
       if (typeof t.carry !== 'string') t.carry = '';
+      if (typeof t.plot !== 'string') t.plot = '';
+      if (!Array.isArray(t.excluded)) t.excluded = [];
     });
     if (!p.threads.some(function (t) { return t.id === p.activeThreadId; })) {
       p.activeThreadId = p.threads[0].id;
@@ -595,6 +644,7 @@
       data = { profiles: [p], activeProfileId: p.id };
     }
     data.profiles.forEach(migrateProfile);
+    ensureCommon();
     if (!data.profiles.some(function (p) { return p.id === data.activeProfileId; })) {
       data.activeProfileId = data.profiles[0].id;
     }
@@ -602,6 +652,13 @@
     if (!api) api = { provider: 'claude', model: MODEL_PRESETS.claude[0], customModel: '' };
     if (!MODEL_PRESETS[api.provider]) api.provider = 'claude';
     fillApiDefaults();
+  }
+
+  /* 全部の人格に効く「共通」部分 */
+  function ensureCommon() {
+    if (!data.common || typeof data.common !== 'object') data.common = {};
+    if (typeof data.common.preface !== 'string') data.common.preface = '';
+    if (!Array.isArray(data.common.files)) data.common.files = [];
   }
 
   function fillApiDefaults() {
@@ -795,11 +852,17 @@
   function buildSystem(th) {
     var p = activeProfile();
     var parts = [];
+    var off = th.excluded || [];
+    if (data.common.preface.trim()) parts.push(data.common.preface.trim());
     if (p.persona.trim()) parts.push(p.persona.trim());
-    if (p.resources.trim()) parts.push('【資料】\n' + p.resources.trim());
-    p.files.forEach(function (f) {
-      if (f.text && f.text.trim()) parts.push('【資料:' + f.name + '】\n' + f.text.trim());
+    data.common.files.forEach(function (f) {
+      if (off.indexOf(f.id) === -1 && f.text && f.text.trim()) parts.push('【資料:' + f.name + '】\n' + f.text.trim());
     });
+    if (off.indexOf(PERSONA_TEXT_ID) === -1 && p.resources.trim()) parts.push('【資料】\n' + p.resources.trim());
+    p.files.forEach(function (f) {
+      if (off.indexOf(f.id) === -1 && f.text && f.text.trim()) parts.push('【資料:' + f.name + '】\n' + f.text.trim());
+    });
+    if (th.plot && th.plot.trim()) parts.push('【冒頭のプロット(この部屋の物語の特殊設定。既定より優先する)】\n' + th.plot.trim());
     if (th.carry && th.carry.trim()) parts.push('【前のスレッドからの引き継ぎ】\n' + th.carry.trim());
     if (p.memories.length > 0) {
       var lines = p.memories.map(function (m) { return '- ' + m.text; });
@@ -1191,6 +1254,46 @@
       list.appendChild(item);
     });
     $('threadCarry').value = activeThread().carry || '';
+    $('threadPlot').value = activeThread().plot || '';
+    renderThreadResources();
+  }
+
+  /* この部屋で使う資料(共通の資料・人格の資料欄・人格の資料ファイル) */
+  function renderThreadResources() {
+    var p = activeProfile();
+    var th = activeThread();
+    var items = [];
+    data.common.files.forEach(function (f) { items.push({ id: f.id, kind: '共通', name: f.name }); });
+    if (p.resources.trim()) items.push({ id: PERSONA_TEXT_ID, kind: p.name, name: '資料欄(手書き)' });
+    p.files.forEach(function (f) { items.push({ id: f.id, kind: p.name, name: f.name }); });
+    var list = $('threadResList');
+    list.innerHTML = '';
+    if (!items.length) {
+      list.innerHTML = '<div class="empty-note">資料はまだありません</div>';
+      return;
+    }
+    items.forEach(function (it) {
+      var row = document.createElement('label');
+      row.className = 'sel-item';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = th.excluded.indexOf(it.id) === -1;
+      cb.addEventListener('change', function () {
+        th.excluded = th.excluded.filter(function (x) { return x !== it.id; });
+        if (!cb.checked) th.excluded.push(it.id);
+        saveData();
+      });
+      var kind = document.createElement('span');
+      kind.className = 's-kind';
+      kind.textContent = it.kind;
+      var name = document.createElement('span');
+      name.className = 's-name';
+      name.textContent = it.name;
+      row.appendChild(cb);
+      row.appendChild(name);
+      row.appendChild(kind);
+      list.appendChild(row);
+    });
   }
 
   /* 今のスレッドで引き継ぎ書を書かせて、それを持った新しいスレッドを作る */
@@ -1210,6 +1313,8 @@
     runReply(th, function (msg) {
       var nt = newThread(th.name + '(続き)');
       nt.carry = msg.content;
+      nt.plot = th.plot || '';
+      nt.excluded = (th.excluded || []).slice();
       p.threads.push(nt);
       p.activeThreadId = nt.id;
       saveData();
@@ -1274,10 +1379,17 @@
   }
 
   function renderFiles() {
-    var p = activeProfile();
-    var list = $('fileList');
+    renderFileList($('fileList'), activeProfile(), 'files');
+  }
+
+  function renderCommonFiles() {
+    renderFileList($('commonFileList'), data.common, 'files');
+  }
+
+  /* owner[key] の資料一覧を描く(人格の資料・共通の資料で共用) */
+  function renderFileList(list, owner, key) {
     list.innerHTML = '';
-    p.files.forEach(function (f) {
+    owner[key].forEach(function (f) {
       var item = document.createElement('div');
       item.className = 'mem-item';
       var t = document.createElement('div');
@@ -1287,10 +1399,10 @@
       del.className = 'mini-btn del';
       del.textContent = '削除';
       del.addEventListener('click', function () {
-        if (!confirm('資料ファイル「' + f.name + '」を外しますか?')) return;
-        p.files = p.files.filter(function (x) { return x.id !== f.id; });
+        if (!confirm('資料「' + f.name + '」を外しますか?')) return;
+        owner[key] = owner[key].filter(function (x) { return x.id !== f.id; });
         saveData();
-        renderFiles();
+        renderFileList(list, owner, key);
       });
       item.appendChild(t);
       item.appendChild(del);
@@ -1307,8 +1419,8 @@
     }
   }
 
-  function addFiles(fileList) {
-    var p = activeProfile();
+  function addFiles(fileList, owner, onDone) {
+    var p = owner;
     var files = Array.prototype.slice.call(fileList);
     var reads = files.map(function (file) {
       return new Promise(function (resolve) {
@@ -1322,13 +1434,14 @@
       var added = 0;
       results.forEach(function (res) {
         if (!res || !res.text.trim()) return;
-        // 同じ名前のファイルは差し替える
+        // 同じ名前は差し替える(部屋ごとの選択を保つため、印は引き継ぐ)
+        var old = p.files.filter(function (x) { return x.name === res.name; })[0];
         p.files = p.files.filter(function (x) { return x.name !== res.name; });
-        p.files.push({ id: uid(), name: res.name, text: res.text });
+        p.files.push({ id: old ? old.id : uid(), name: res.name, text: res.text });
         added++;
       });
       saveData();
-      renderFiles();
+      onDone();
       if (added < results.length) alert('読み込めなかった、または中身が空のファイルがありました。');
     });
   }
@@ -1403,12 +1516,19 @@
     $('keyClaude').value = keys.claude || '';
     $('keyOpenai').value = keys.openai || '';
     $('keyGemini').value = keys.gemini || '';
+    $('commonPreface').value = data.common.preface;
+    updatePrefaceCount();
+    renderCommonFiles();
     renderEffortOptions();
     $('setThinking').value = api.thinking;
     $('setMaxTokens').value = api.maxTokens;
     $('setHistoryTurns').value = api.historyTurns;
     $('setCacheTtl').value = api.cacheTtl;
     $('setHandoffPrompt').value = api.handoffPrompt;
+  }
+
+  function updatePrefaceCount() {
+    $('prefaceCount').textContent = $('commonPreface').value.length + '文字';
   }
 
   function renderEffortOptions() {
@@ -1436,7 +1556,7 @@
   function doExport() {
     var payload = {
       app: 'aichat',
-      version: 3,  // v3: 資料・引き継ぎメモ・送信の設定・使用量を含む
+      version: 4,  // v4: 共通の前置き・共通の資料・部屋ごとのプロットと資料の選択を含む
       exportedAt: new Date().toISOString(),
       data: data,
       api: apiSettingsForExport()
@@ -1465,6 +1585,7 @@
         if (!confirm('バックアップを読み込みます。現在の全プロファイルは上書きされます。よろしいですか?')) return;
         data = d;
         data.profiles.forEach(migrateProfile);  // 旧形式(v1: messages直持ち)にも対応
+        ensureCommon();
         if (!data.profiles.some(function (p) { return p.id === data.activeProfileId; })) {
           data.activeProfileId = data.profiles[0].id;
         }
@@ -1617,8 +1738,38 @@
 
   $('btnAddFile').addEventListener('click', function () { $('resFile').click(); });
   $('resFile').addEventListener('change', function () {
-    if (this.files && this.files.length) addFiles(this.files);
+    if (this.files && this.files.length) addFiles(this.files, activeProfile(), renderFiles);
     this.value = '';
+  });
+
+  $('btnAddCommonFile').addEventListener('click', function () { $('commonFile').click(); });
+  $('commonFile').addEventListener('change', function () {
+    if (this.files && this.files.length) addFiles(this.files, data.common, renderCommonFiles);
+    this.value = '';
+  });
+  $('btnAddCommonText').addEventListener('click', function () {
+    var name = $('commonTextName').value.trim();
+    var body = $('commonTextBody').value;
+    if (!name || !body.trim()) { alert('資料名と中身を入れてください。'); return; }
+    var old = data.common.files.filter(function (x) { return x.name === name; })[0];
+    data.common.files = data.common.files.filter(function (x) { return x.name !== name; });
+    data.common.files.push({ id: old ? old.id : uid(), name: name, text: body });
+    $('commonTextName').value = '';
+    $('commonTextBody').value = '';
+    saveData();
+    renderCommonFiles();
+  });
+  $('commonPreface').addEventListener('input', updatePrefaceCount);
+  $('btnSavePreface').addEventListener('click', function () {
+    data.common.preface = $('commonPreface').value;
+    saveData();
+    alert('共通の前置きを保存しました。');
+  });
+
+  $('btnSavePlot').addEventListener('click', function () {
+    activeThread().plot = $('threadPlot').value;
+    saveData();
+    alert('この部屋のプロットを保存しました。');
   });
 
   $('profPersona').addEventListener('input', updateCounts);
